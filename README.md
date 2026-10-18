@@ -1,89 +1,154 @@
 # Lexical and Syntax Analyzer in Java
 
-A compiler front-end project written in Java. It reads a source file, splits it
-into tokens (**lexical analysis**), and then checks that the tokens follow the
-language grammar (**syntax analysis**). Errors are reported with line numbers.
+A compiler front-end written in Java for a custom object-oriented programming language. It reads a source file, splits it into tokens (**lexical analysis**), and checks that the tokens follow the language grammar (**syntax analysis**). Errors are reported with line numbers.
 
 ## Features
-- Reads source code from a text file
-- **Lexical analyzer** that produces a list of tokens, each with a type, lexeme and line number
-- Recognizes [keywords, identifiers, integer/float literals, operators, punctuation, string and character literals]
-- Flags bad input as `INVALID` tokens, for example an unterminated character literal, instead of crashing
-- **Syntax analyzer** that checks the token stream against the grammar and throws a
-  `SyntaxErrorException` with a clear message when the structure is wrong
-- Prints the token table and the syntax result to the console
+
+- **Lexical analyzer** that reads source code character by character and produces a list of tokens, each with a type, lexeme and line number
+- Recognizes 40+ keywords, identifiers, integer and decimal literals, string and character literals (with escape sequences), operators and punctuators
+- Supports single-line and multi-line comments
+- Flags bad input (unterminated strings, empty or unterminated character literals, unknown symbols) as `INVALID` tokens instead of crashing
+- **Recursive-descent parser** that checks the token stream against the grammar, using FIRST sets to choose between rules
+- Correct operator precedence for assignment, logical, relational, arithmetic, unary and postfix operators
+- Clear syntax error messages with the line number and the token that caused the error
+
+## The language
+
+The language is object-oriented and similar to Java, with its own keywords.
+
+| Keyword | Meaning | Keyword | Meaning |
+|---|---|---|---|
+| `blueprint` | class | `check` / `otherwise` | if / else |
+| `inherits` | extends | `loopfor` | for loop |
+| `combine` | implements | `loopwhile` | while loop |
+| `pattern` | interface | `rerun ... until` | do-while loop |
+| `constructor` | constructor | `pick` / `case range` / `default` | switch |
+| `open` / `hidden` / `shielded` | public / private / protected | `halt` / `skip` | break / continue |
+| `static` / `const` / `locked` / `override` | modifiers | `giveback` | return |
+| `num` / `decimal` / `flag` / `text` / `char` / `void` | data types | `bundle` | array (1–3 dimensions) |
+| `self` / `parent` | this / super | `yes` / `no` / `null` | true / false / null |
+| `new` | create object or array | `end` | end of program |
+
+**Comments:** `$` starts a single-line comment; `$$ ... $$` wraps a multi-line comment.
+
+## Grammar
+
+Written in EBNF: `{ }` means zero or more, `[ ]` means optional, `|` means or.
+
+```
+program      → blueprint { patternDecl } "end"
+
+blueprint    → "blueprint" ID [ "inherits" ID { "," ID } ] [ "combine" ID { "," ID } ]
+               "{" { memberDecl } "}"
+patternDecl  → "pattern" ID "{" { { modifier } returnType ID "(" [ argList ] ")" ";" } "}" ";"
+
+memberDecl   → { modifier } ( staticBlock | constructor | arrayDecl
+               | ID ID ";" | returnType ID ( methodBody | fieldList ) )
+modifier     → "open" | "hidden" | "shielded" | "static" | "locked" | "override" | "const"
+staticBlock  → "{" { statement } "}"                       (after "static")
+constructor  → "constructor" "(" [ argList ] ")" body
+methodBody   → "(" [ argList ] ")" body
+fieldList    → [ "=" expr ] { "," ID [ "=" expr ] } ";"
+arrayDecl    → "bundle" "[" NUM "]" [ "[" NUM "]" [ "[" NUM "]" ] ] ID [ "=" initializer ] ";"
+initializer  → "{" [ initElement { "," initElement } ] "}" | expr
+initElement  → initializer | expr
+
+returnType   → "void" | ( dataType | ID ) { "[" "]" }
+dataType     → "num" | "decimal" | "flag" | "text" | "char"
+argList      → arg { "," arg }
+arg          → ( dataType | ID ) { "[" "]" } ID [ "=" expr ]
+
+body         → "{" { statement } "}"
+statement    → checkStmt | forStmt | whileStmt | pickStmt | rerunStmt
+             | ( "halt" | "skip" ) ";" | "giveback" [ expr ] ";"
+             | declaration | expr ";"
+checkStmt    → "check" "(" expr ")" body [ "otherwise" body ]
+forStmt      → "loopfor" "(" ( statement | ";" ) [ expr ] ";" [ expr ] ")" body
+whileStmt    → "loopwhile" "(" expr ")" body
+rerunStmt    → "rerun" body "until" "(" expr ")" ";"
+pickStmt     → "pick" "(" expr ")" "{"
+                 { "case" "range" "[" expr "," expr "]" ":" { statement } }
+                 [ "default" ":" { statement } ] "}"
+
+expr         → assignment
+assignment   → orExpr [ ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) assignment ]
+orExpr       → andExpr { "||" andExpr }
+andExpr      → relExpr { "&&" relExpr }
+relExpr      → addExpr [ ( "==" | "!=" | "<" | ">" | "<=" | ">=" ) addExpr ]
+addExpr      → mulExpr { ( "+" | "-" ) mulExpr }
+mulExpr      → postfix { ( "*" | "/" | "%" ) postfix }
+postfix      → primary { "(" [ expr { "," expr } ] ")" | "[" expr "]"
+                       | "." ( ID | "constructor" ) | "++" | "--" }
+primary      → ( "++" | "--" | "!" | "+" | "-" ) postfix
+             | "new" ( dataType | ID ) ( "[" expr "]" | "(" [ expr { "," expr } ] ")" )
+             | literal | "(" expr ")" | ID | "self" | "parent"
+literal      → NUM | DECIMAL | CHAR | TEXT | "yes" | "no" | "null"
+```
 
 ## Project structure
+
 ```
 .
 ├── src/
-│   └── LexicalSyntaxAnalyzer.java   # lexer, parser, Token and SyntaxErrorException
+│   └── LexicalSyntaxAnalyzer.java   # Token class, lexer, parser and SyntaxErrorException
 ├── .gitignore
 └── README.md
 ```
 
-## How it works
-1. **Lexical analysis.** `lexicalAnalysis(String filename)` reads the file
-   character by character, groups characters into lexemes, and returns a
-   `List<Token>`. Anything that matches no rule becomes an `INVALID` token.
-2. **Syntax analysis.** The parser walks through the token list and checks it
-   against the grammar below. On the first violation it throws a
-   `SyntaxErrorException` that includes the line number.
-
-### Token format
-| Field  | Meaning                                   |
-|--------|-------------------------------------------|
-| type   | e.g. KEYWORD, IDENTIFIER, NUMBER, OPERATOR, INVALID |
-| lexeme | the exact text from the source            |
-| line   | line number where it appears              |
-
-## Grammar
-```
-[paste your grammar rules here, for example:
- program    -> statement*
- statement  -> declaration | assignment | ifStatement | whileStatement
- declaration-> type IDENTIFIER ( '=' expression )? ';'
- ...]
-```
-
-## Requirements
-- JDK 8 or later
-
 ## How to run
+
+Requires JDK 9 or later.
+
 ```
 javac src/LexicalSyntaxAnalyzer.java
-java -cp src LexicalSyntaxAnalyzer [input-file]
+java -cp src LexicalSyntaxAnalyzer path/to/code.txt
 ```
 
 ## Example
-**Input (`test.txt`)**
+
+**Input (`code.txt`)**
+
 ```
-// Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
-class Token {
-   String classPart;
-   String valuePart;
-   int lineNo;
+$ A small program in the custom language
+blueprint Student inherits Person {
+    hidden num age = 20;
+    open text name;
+    bundle [3] marks = {80, 75, 90};
 
-   Token(String var1, String var2, int var3) {
-      this.classPart = var1;
-      this.valuePart = var2;
-      this.lineNo = var3;
-   }
+    constructor(text n, num a) {
+        self.name = n;
+        self.age = a;
+    }
 
-   public String toString() {
-      return "'" + this.valuePart + "' (Type: " + this.classPart + ", Line: " + this.lineNo + ")";
-   }
+    open num total() {
+        num sum = 0;
+        loopfor (num i = 0; i < 3; i++) {
+            sum += marks[i];
+        }
+        giveback sum;
+    }
+
+    open void result() {
+        check (self.total() >= 200) {
+            print("Pass");
+        } otherwise {
+            print("Fail");
+        }
+    }
 }
 
+pattern Printable {
+    open void show();
+};
+
+end
 ```
 
 **Output**
+
 ```
 --- Lexical Analysis Starting ---
 --- Lexical Analysis Finished ---
-
---- Lexical Analysis Tokens ---
-... (193 tokens generated, including EOF) ...
 
 --- Syntax Analysis Starting ---
 --- Syntax Analysis Finished ---
@@ -93,6 +158,14 @@ class Token {
 ============================
 ```
 
+If the code breaks a grammar rule, for example a missing `;`, the analyzer stops and reports where:
+
+```
+--- Syntax Error Detected ---
+Syntax Error: Expected punctuator ';' at line 4. Found: 'open' (Type: KW_OPEN, Line: 4)
+```
 
 ## Author
-[Malaika Fatima] – [Compiler], University of Karachi (UBIT)
+
+**Malika Fatima** — BS Software Engineering, University of Karachi (UBIT)
+[LinkedIn](https://www.linkedin.com/in/malaika-fatima-633b1b27a) · [GitHub](https://github.com/millixm)
